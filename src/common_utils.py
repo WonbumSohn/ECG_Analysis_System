@@ -79,3 +79,70 @@ def setup_early_logging(save_location=None):
     logger.info("This log will be used until analysis mode is selected")
 
     return logger, log_path
+
+
+def setup_logging(filename, save_location=None):
+    """
+    Function to initialize logging configuration with user-defined filename.
+    사용자 정의 파일명으로 로깅 설정을 초기화하는 함수.
+
+    This transitions from early logging to user-defined filename logging.
+    초기 로깅에서 사용자 정의 파일명 로깅으로 전환합니다.
+
+    Args:
+        filename (str): Base filename for log file (e.g., "S1_T1_offline")
+                        로그 파일 기본 파일명 (예: "S1_T1_offline")
+        save_location (str, optional): User-specified save location. Uses default if None.
+                                       사용자 지정 저장 위치. None이면 기본값 사용.
+
+    Returns:
+        logging.Logger: Configured logger instance
+                        설정된 로거 인스턴스
+    """
+    # Determine log directory / 로그 디렉토리 결정
+    if save_location:
+        # Create log folder in user-specified save location
+        # 사용자 지정 저장 위치에 로그 폴더 생성
+        log_dir = os.path.join(save_location, "log")
+    else:
+        # Default: Create log folder path based on current script's directory
+        # 기본값: 현재 스크립트 디렉토리 기준으로 로그 폴더 경로 생성
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        log_dir = os.path.join(os.path.dirname(current_dir), "log")
+
+    # Create date-based subdirectory (YYYYMMDD)
+    # 날짜 기반 하위 디렉토리 생성 (YYYYMMDD)
+    date_folder = datetime.now().strftime("%Y%m%d")
+    session_log_dir = os.path.join(log_dir, date_folder)
+    os.makedirs(session_log_dir, exist_ok=True)
+
+    # Generate log filename using user-defined filename
+    # 사용자 정의 파일명을 사용하여 로그 파일명 생성
+    log_filename = f"{filename}.log"
+    log_path = os.path.join(session_log_dir, log_filename)
+
+    # Get root logger and clear any existing handlers (to stop early logging)
+    # 루트 로거를 가져오고 기존 핸들러를 모두 제거 (초기 로깅 중지)
+    logger = logging.getLogger()
+    logger.handlers.clear()
+    logger.setLevel(logging.INFO)
+
+    # Create new file handler for user-defined filename
+    # 사용자 정의 파일명용 새 파일 핸들러 생성
+    file_handler = logging.FileHandler(log_path, encoding='utf-8')
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+
+    # Create console handler / 콘솔 핸들러 생성
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+
+    # Add handlers to logger / 로거에 핸들러 추가
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    logger.info(f"Transitioned to user-defined log file: {log_filename}")
+    logger.info("Early logging has been stopped")
+
+    return logger

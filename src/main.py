@@ -469,6 +469,22 @@ if __name__ == "__main__":
     # Create QApplication instance / QApplication 인스턴스 생성
     app = QApplication(sys.argv)
 
+    # Force light theme (ignore system dark mode on macOS)
+    # 라이트 테마 강제 (macOS 시스템 다크 모드 무시)
+    app.setStyle("Fusion")
+    from PySide6.QtGui import QPalette, QColor
+    palette = QPalette()
+    palette.setColor(QPalette.ColorRole.Window, QColor(240, 240, 240))
+    palette.setColor(QPalette.ColorRole.WindowText, QColor(0, 0, 0))
+    palette.setColor(QPalette.ColorRole.Base, QColor(255, 255, 255))
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(245, 245, 245))
+    palette.setColor(QPalette.ColorRole.Text, QColor(0, 0, 0))
+    palette.setColor(QPalette.ColorRole.Button, QColor(240, 240, 240))
+    palette.setColor(QPalette.ColorRole.ButtonText, QColor(0, 0, 0))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor(76, 163, 224))
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
+    app.setPalette(palette)
+
     # Create main window / 메인 윈도우 생성
     window = MainWindow()
     # Display main window / 메인 윈도우 표시
