@@ -3,3 +3,13 @@
 
 # Core GUI Framework / 핵심 GUI 프레임워크
 PySide6>=6.5.0
+
+# Data Processing / 데이터 처리
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Scientific Computing / 과학 연산
+scipy>=1.10.0
+
+# Visualization / 시각화
+matplotlib>=3.7.0

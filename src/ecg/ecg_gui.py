@@ -83,15 +83,36 @@ def ecg_analysis_gui(parent=None, save_location=None, early_log_path=None):
             # ===== 오프라인 데이터 분석 모드 =====
             logger.info("Launching Offline Data Analysis mode")
 
-            # TODO: Implement offline analysis window
-            # TODO: 오프라인 분석 윈도우 구현 예정
-            logger.info("Offline Data Analysis - placeholder (to be implemented)")
-            QMessageBox.information(
-                parent,
-                "Offline Data Analysis",
-                "Offline Data Analysis feature will be implemented soon.\n\n"
-                "오프라인 데이터 분석 기능이 곧 구현될 예정입니다."
+            # Show loading dialog while importing and creating window
+            # 윈도우 임포트 및 생성 중 로딩 다이얼로그 표시
+            from PySide6.QtWidgets import QProgressDialog, QApplication
+            from PySide6.QtCore import Qt
+
+            progress = QProgressDialog("Loading Offline Analysis...", None, 0, 0, parent)
+            progress.setWindowTitle("Loading")
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
+            progress.setMinimumDuration(0)
+            progress.setCancelButton(None)
+            progress.show()
+            QApplication.processEvents()
+
+            # Import and launch offline analysis window
+            # 오프라인 분석 윈도우 임포트 및 실행
+            from ecg.ecg_offline_analysis import ECGOfflineAnalysis
+            from config_manager import ConfigManager
+
+            offline_window = ECGOfflineAnalysis(
+                parent=parent,
+                config_manager=ConfigManager(save_location=save_location),
+                save_location=save_location,
+                early_log_path=early_log_filename
             )
+
+            # Close loading dialog / 로딩 다이얼로그 닫기
+            progress.close()
+
+            offline_window.exec()
+            logger.info("Offline Data Analysis window closed")
 
         else:
             # ===== Real-time Monitoring mode =====
