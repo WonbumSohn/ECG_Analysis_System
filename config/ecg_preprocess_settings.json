@@ -1,0 +1,37 @@
+{
+    "last_method": "neurokit2",
+    "windowing": {
+        "enabled": true,
+        "window_size": 20.0,
+        "window_step": 20.0
+    },
+    "manual": {
+        "moving_avg_enabled": false,
+        "moving_avg_window": 4,
+        "dc_removal_enabled": false,
+        "dc_removal_method": "moving_average",
+        "dc_removal_window": 20,
+        "dc_removal_step": 20,
+        "butterworth_enabled": true,
+        "butterworth_low": 0.5,
+        "butterworth_high": 40.0,
+        "butterworth_order": 5,
+        "outlier_enabled": true,
+        "outlier_method": "std",
+        "outlier_multiplier": 3.0
+    },
+    "neurokit2": {
+        "method": "neurokit",
+        "sampling_rate": 1000.0
+    },
+    "peak_detection": {
+        "method": "neurokit2",
+        "sub_method": "neurokit",
+        "detection_range": "window",
+        "window_size": 20.0,
+        "window_step": 20.0,
+        "prominence_multiplier": 0.5,
+        "height_ratio": 0.3,
+        "height_distance": 20
+    }
+}

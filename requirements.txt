@@ -11,5 +11,8 @@ pandas>=2.0.0
 # Scientific Computing / 과학 연산
 scipy>=1.10.0
 
+# Neurophysiological Signal Processing / 신경생리학적 신호 처리
+neurokit2>=0.2.0
+
 # Visualization / 시각화
 matplotlib>=3.7.0
