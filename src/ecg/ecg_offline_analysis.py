@@ -86,6 +86,11 @@ class ECGOfflineAnalysis(QDialog):
         self.ecg_preprocessed = None
         self.hr_data = None
 
+        # Preprocessing state / 전처리 상태
+        self.preprocessing_settings = None   # 현재 전처리 설정 캐시 / Current preprocessing settings cache
+        self.preprocessing_method = None     # "manual" or "neurokit2"
+        self.windowing_settings = None       # 윈도우 설정 캐시 / Windowing settings cache
+
         # Column selection result / 컬럼 선택 결과
         self.column_selection = None
 
@@ -96,6 +101,11 @@ class ECGOfflineAnalysis(QDialog):
         # Sampling rate (calculated from time data)
         # 샘플링 레이트 (시간 데이터에서 계산)
         self.sampling_rate = None
+
+        # Peak detection state / 피크 검출 상태
+        self.peak_indices = None      # R-peak sample indices / R-피크 샘플 인덱스
+        self.peak_settings = None     # Current peak detection settings / 현재 피크 검출 설정
+        self.scatter_peaks = None     # Matplotlib scatter artist / Matplotlib scatter 아티스트
 
         # Start/End marker filter info for display
         # Start/End 마커 필터 정보 (표시용)
@@ -237,11 +247,11 @@ class ECGOfflineAnalysis(QDialog):
         # === Bottom controls / 하단 컨트롤 ===
         bottom_controls_layout = QHBoxLayout()
 
-        # Peak detection checkbox (disabled for now)
-        # 피크 검출 체크박스 (현재 비활성화)
+        # Peak detection checkbox / 피크 검출 체크박스
         self.checkbox_peaks = QCheckBox("Check Peaks")
         self.checkbox_peaks.setChecked(False)
         self.checkbox_peaks.setEnabled(False)
+        self.checkbox_peaks.stateChanged.connect(self._on_peaks_toggled)
         bottom_controls_layout.addWidget(self.checkbox_peaks)
 
         # HR analysis controls (disabled for now)
@@ -335,7 +345,14 @@ class ECGOfflineAnalysis(QDialog):
             # Reset states / 상태 초기화
             self.ecg_preprocessed = None
             self.hr_data = None
+            self.preprocessing_settings = None
+            self.preprocessing_method = None
+            self.windowing_settings = None
+            self.peak_indices = None
+            self.peak_settings = None
+            self.scatter_peaks = None
             self.checkbox_peaks.setChecked(False)
+            self.checkbox_peaks.setEnabled(False)
             self.checkbox_hr.setChecked(False)
 
             # Enable preprocessing button / 전처리 버튼 활성화
@@ -635,7 +652,28 @@ class ECGOfflineAnalysis(QDialog):
                 self.time_data, self.ecg_preprocessed,
                 'k-', linewidth=0.5, alpha=0.8, label="ECG (preprocessed)"
             )
-            self.ax_preprocessed.legend(loc='upper right', fontsize=8)
+
+            # Plot markers on preprocessed graph (same as raw)
+            # 전처리된 그래프에도 마커 표시 (Raw와 동일)
+            self._plot_markers(self.ax_preprocessed)
+
+            # Re-plot R-peaks if detected (clear() removes scatter artists)
+            # R-피크가 검출된 경우 다시 플로팅 (clear()가 scatter 아티스트를 제거하므로)
+            if self.peak_indices is not None and len(self.peak_indices) > 0:
+                self.scatter_peaks = self.ax_preprocessed.scatter(
+                    self.time_data[self.peak_indices],
+                    self.ecg_preprocessed[self.peak_indices],
+                    facecolors='none',
+                    edgecolors='red',
+                    s=50,
+                    linewidths=1,
+                    label='R-Peaks',
+                    zorder=5,
+                )
+
+            handles, labels = self.ax_preprocessed.get_legend_handles_labels()
+            if handles:
+                self.ax_preprocessed.legend(loc='upper right', fontsize=8)
 
         # === Heart Rate (empty for now) ===
         # === 심박수 (현재 비어 있음) ===
@@ -915,20 +953,291 @@ class ECGOfflineAnalysis(QDialog):
         self.canvas.draw()
 
     # =========================================================================
-    # Preprocessing (Placeholder) / 전처리 (Placeholder)
+    # Preprocessing / 전처리
     # =========================================================================
 
     def _on_preprocessing_clicked(self):
         """
-        Handle Select Preprocessing button click (placeholder).
-        Select Preprocessing 버튼 클릭 처리 (placeholder).
+        Handle Select Preprocessing button click.
+        Select Preprocessing 버튼 클릭 처리.
+
+        Opens method selection dialog, then appropriate sub-dialog.
+        방법 선택 다이얼로그를 열고, 적절한 하위 다이얼로그를 엽니다.
         """
-        self.logger.info("Select Preprocessing button clicked (placeholder)")
-        QMessageBox.information(
-            self, "Select Preprocessing",
-            "ECG preprocessing feature will be implemented soon.\n\n"
-            "ECG 전처리 기능이 곧 구현될 예정입니다."
+        from ecg.ecg_preprocessing import (
+            ECGPreprocessingMethodDialog,
+            ECGManualPreprocessingDialog,
+            ECGNeuroKit2PreprocessingDialog,
+            apply_ecg_preprocessing,
         )
+
+        self.logger.info("Select Preprocessing button clicked")
+
+        while True:
+            # Step 1: Method selection dialog (includes windowing options)
+            # 단계 1: 방법 선택 다이얼로그 (윈도우 옵션 포함)
+            method_dialog = ECGPreprocessingMethodDialog(
+                self, current_windowing=self.windowing_settings
+            )
+            if method_dialog.exec() != QDialog.DialogCode.Accepted:
+                self.logger.info("Preprocessing method selection cancelled")
+                return
+
+            selected_method = method_dialog.selected_method
+            windowing = method_dialog.get_windowing_settings()
+
+            # Step 2: Open appropriate sub-dialog
+            # 단계 2: 적절한 하위 다이얼로그 열기
+            # Cancel in sub-dialog → continue loop → re-show method selection
+            # 하위 다이얼로그에서 Cancel → 루프 계속 → 방법 선택 다시 표시
+            if selected_method == "manual":
+                current_manual = None
+                if self.preprocessing_settings and self.preprocessing_method == "manual":
+                    current_manual = self.preprocessing_settings
+
+                dialog = ECGManualPreprocessingDialog(
+                    parent=self, current_settings=current_manual
+                )
+                if dialog.exec() != QDialog.DialogCode.Accepted:
+                    self.logger.info("Manual preprocessing dialog cancelled, returning to method selection")
+                    continue
+
+                manual_settings = dialog.get_settings()
+                self.preprocessing_settings = manual_settings
+                self.preprocessing_method = "manual"
+                self.windowing_settings = windowing
+
+                # Apply preprocessing / 전처리 적용
+                try:
+                    self.ecg_preprocessed = apply_ecg_preprocessing(
+                        ecg_signal=self.ecg_data,
+                        method="manual",
+                        manual_settings=manual_settings,
+                        sampling_rate=self.sampling_rate,
+                        windowing=windowing,
+                        logger=self.logger,
+                    )
+                    self.logger.info("Manual preprocessing applied successfully")
+                except Exception as e:
+                    self.logger.error(f"Manual preprocessing failed: {e}", exc_info=True)
+                    QMessageBox.critical(
+                        self, "Preprocessing Error",
+                        f"Manual preprocessing failed:\n\n{str(e)}"
+                    )
+                    return
+                break
+
+            elif selected_method == "neurokit2":
+                current_nk = None
+                if self.preprocessing_settings and self.preprocessing_method == "neurokit2":
+                    current_nk = self.preprocessing_settings
+
+                dialog = ECGNeuroKit2PreprocessingDialog(
+                    parent=self,
+                    current_settings=current_nk,
+                    sampling_rate=self.sampling_rate,
+                )
+                if dialog.exec() != QDialog.DialogCode.Accepted:
+                    self.logger.info("NeuroKit2 preprocessing dialog cancelled, returning to method selection")
+                    continue
+
+                nk_settings = dialog.get_settings()
+                self.preprocessing_settings = nk_settings
+                self.preprocessing_method = "neurokit2"
+                self.windowing_settings = windowing
+
+                # Apply preprocessing / 전처리 적용
+                try:
+                    self.ecg_preprocessed = apply_ecg_preprocessing(
+                        ecg_signal=self.ecg_data,
+                        method="neurokit2",
+                        neurokit2_settings=nk_settings,
+                        sampling_rate=self.sampling_rate,
+                        windowing=windowing,
+                        logger=self.logger,
+                    )
+                    self.logger.info("NeuroKit2 preprocessing applied successfully")
+                except Exception as e:
+                    self.logger.error(f"NeuroKit2 preprocessing failed: {e}", exc_info=True)
+                    QMessageBox.critical(
+                        self, "Preprocessing Error",
+                        f"NeuroKit2 preprocessing failed:\n\n{str(e)}"
+                    )
+                    return
+                break
+
+        # Step 3: Save windowing settings to config
+        # 단계 3: 윈도우 설정을 config에 저장
+        from ecg.ecg_preprocessing import (
+            load_ecg_preprocess_settings,
+            get_default_ecg_preprocess_settings,
+            save_ecg_preprocess_settings,
+        )
+        full_config = load_ecg_preprocess_settings() or get_default_ecg_preprocess_settings()
+        full_config["windowing"] = windowing
+        save_ecg_preprocess_settings(full_config)
+
+        # Step 4: Reset dependent state and replot
+        # 단계 4: 종속 상태 초기화 및 다시 그리기
+        self.hr_data = None
+        self.peak_indices = None
+        self.scatter_peaks = None
+        self.checkbox_peaks.blockSignals(True)
+        self.checkbox_peaks.setChecked(False)
+        self.checkbox_peaks.blockSignals(False)
+        self.checkbox_hr.setChecked(False)
+
+        self.plot_data()
+
+        # Enable peak detection checkbox after preprocessing
+        # 전처리 완료 후 피크 검출 체크박스 활성화
+        self.checkbox_peaks.setEnabled(True)
+
+    # =========================================================================
+    # Peak Detection / 피크 검출
+    # =========================================================================
+
+    def _on_peaks_toggled(self, state):
+        """
+        Handle Check Peaks checkbox state change.
+        Check Peaks 체크박스 상태 변경 처리.
+
+        When checked: open settings dialog, run detection, plot peaks.
+        When unchecked: clear peaks from graph.
+        체크 시: 설정 다이얼로그 열기, 검출 실행, 피크 플로팅.
+        해제 시: 그래프에서 피크 제거.
+
+        Args:
+            state: Checkbox state / 체크박스 상태
+        """
+        if state == Qt.CheckState.Checked.value:
+            # Guard: preprocessed data must exist
+            # 가드: 전처리된 데이터 필수
+            if self.ecg_preprocessed is None:
+                QMessageBox.warning(
+                    self, "Peak Detection",
+                    "No preprocessed ECG data available.\n"
+                    "Please run preprocessing first."
+                )
+                self.checkbox_peaks.blockSignals(True)
+                self.checkbox_peaks.setChecked(False)
+                self.checkbox_peaks.blockSignals(False)
+                return
+
+            if self.sampling_rate is None:
+                QMessageBox.warning(
+                    self, "Peak Detection",
+                    "Sampling rate is not available.\n"
+                    "Please reload the CSV file."
+                )
+                self.checkbox_peaks.blockSignals(True)
+                self.checkbox_peaks.setChecked(False)
+                self.checkbox_peaks.blockSignals(False)
+                return
+
+            from ecg.ecg_peak_detection import (
+                ECGPeakDetectionSettingsDialog,
+                detect_ecg_r_peaks,
+            )
+
+            # Open settings dialog / 설정 다이얼로그 열기
+            dialog = ECGPeakDetectionSettingsDialog(
+                parent=self, current_settings=self.peak_settings
+            )
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                self.logger.info("Peak detection cancelled")
+                self.checkbox_peaks.blockSignals(True)
+                self.checkbox_peaks.setChecked(False)
+                self.checkbox_peaks.blockSignals(False)
+                return
+
+            settings = dialog.get_settings()
+            self.peak_settings = settings
+
+            # Run peak detection / 피크 검출 실행
+            try:
+                self.peak_indices = detect_ecg_r_peaks(
+                    ecg_cleaned=self.ecg_preprocessed,
+                    sampling_rate=self.sampling_rate,
+                    settings=settings,
+                    logger=self.logger,
+                )
+            except Exception as e:
+                self.logger.error(f"Peak detection failed: {e}", exc_info=True)
+                QMessageBox.critical(
+                    self, "Peak Detection Error",
+                    f"R-peak detection failed:\n\n{str(e)}"
+                )
+                self.checkbox_peaks.blockSignals(True)
+                self.checkbox_peaks.setChecked(False)
+                self.checkbox_peaks.blockSignals(False)
+                return
+
+            if self.peak_indices is None or len(self.peak_indices) == 0:
+                QMessageBox.information(
+                    self, "Peak Detection",
+                    "No R-peaks were detected in the signal."
+                )
+                self.peak_indices = None
+                self.checkbox_peaks.blockSignals(True)
+                self.checkbox_peaks.setChecked(False)
+                self.checkbox_peaks.blockSignals(False)
+                return
+
+            self.logger.info(f"R-peak detection complete: {len(self.peak_indices)} peaks found")
+            self._plot_peaks()
+
+        else:
+            # Unchecked: clear peaks / 해제: 피크 제거
+            self._clear_peaks()
+            self.peak_indices = None
+            self.canvas.draw()
+
+    def _plot_peaks(self):
+        """
+        Plot R-peak markers on the preprocessed ECG graph.
+        전처리된 ECG 그래프에 R-피크 마커 표시.
+        """
+        self._clear_peaks()
+
+        if self.peak_indices is None or len(self.peak_indices) == 0:
+            return
+
+        self.scatter_peaks = self.ax_preprocessed.scatter(
+            self.time_data[self.peak_indices],
+            self.ecg_preprocessed[self.peak_indices],
+            facecolors='none',
+            edgecolors='red',
+            s=50,
+            linewidths=1,
+            label='R-Peaks',
+            zorder=5,
+        )
+
+        # Update legend / 범례 업데이트
+        self.ax_preprocessed.legend(loc='upper right', fontsize=8)
+        self.canvas.draw()
+
+    def _clear_peaks(self):
+        """
+        Remove peak markers from the graph.
+        그래프에서 피크 마커 제거.
+        """
+        if self.scatter_peaks is not None:
+            try:
+                self.scatter_peaks.remove()
+            except ValueError:
+                pass
+            self.scatter_peaks = None
+
+            # Update legend / 범례 업데이트
+            handles, labels = self.ax_preprocessed.get_legend_handles_labels()
+            if handles:
+                self.ax_preprocessed.legend(loc='upper right', fontsize=8)
+            else:
+                legend = self.ax_preprocessed.get_legend()
+                if legend:
+                    legend.remove()
 
     # =========================================================================
     # Save / 저장
@@ -939,7 +1248,7 @@ class ECGOfflineAnalysis(QDialog):
         Save all graphs with data as individual PNG files.
         데이터가 있는 모든 그래프를 개별 PNG 파일로 저장.
 
-        Files saved to: Results/YYYYMMDD/{loaded_filename}_{graph_name}.png
+        Files saved to: results/YYYYMMDD/{loaded_filename}_{graph_name}.png
         """
         if self.loaded_filename is None or self.time_data is None:
             QMessageBox.warning(
@@ -1049,12 +1358,17 @@ class ECGOfflineAnalysis(QDialog):
             offsets = collection.get_offsets()
             if len(offsets) > 0:
                 facecolors = collection.get_facecolor()
+                edgecolors = collection.get_edgecolor()
                 sizes = collection.get_sizes()
+                label = collection.get_label()
                 ax_single.scatter(
                     offsets[:, 0], offsets[:, 1],
-                    c=[facecolors[0]] if len(facecolors) > 0 else 'red',
+                    facecolors=facecolors[0] if len(facecolors) > 0 else 'none',
+                    edgecolors=edgecolors[0] if len(edgecolors) > 0 else 'black',
                     s=sizes[0] if len(sizes) > 0 else 20,
-                    marker='o', zorder=5
+                    linewidths=1,
+                    marker='o', zorder=5,
+                    label=label if label and not label.startswith('_') else None,
                 )
 
         # Copy axis settings / 축 설정 복사
