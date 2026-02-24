@@ -107,6 +107,10 @@ class ECGOfflineAnalysis(QDialog):
         self.peak_settings = None     # Current peak detection settings / 현재 피크 검출 설정
         self.scatter_peaks = None     # Matplotlib scatter artist / Matplotlib scatter 아티스트
 
+        # HR calculation state / HR 계산 상태
+        self.hr_settings = None       # HR calculation settings / HR 계산 설정
+        self.line_hr = None           # HR plot line artist / HR 플롯 라인 아티스트
+
         # Start/End marker filter info for display
         # Start/End 마커 필터 정보 (표시용)
         self.filter_info = None
@@ -262,6 +266,7 @@ class ECGOfflineAnalysis(QDialog):
         self.checkbox_hr = QCheckBox("Show HR")
         self.checkbox_hr.setChecked(False)
         self.checkbox_hr.setEnabled(False)
+        self.checkbox_hr.stateChanged.connect(self._on_hr_toggled)
         bottom_controls_layout.addWidget(self.checkbox_hr)
 
         bottom_controls_layout.addStretch()
@@ -345,6 +350,8 @@ class ECGOfflineAnalysis(QDialog):
             # Reset states / 상태 초기화
             self.ecg_preprocessed = None
             self.hr_data = None
+            self.hr_settings = None
+            self.line_hr = None
             self.preprocessing_settings = None
             self.preprocessing_method = None
             self.windowing_settings = None
@@ -353,7 +360,10 @@ class ECGOfflineAnalysis(QDialog):
             self.scatter_peaks = None
             self.checkbox_peaks.setChecked(False)
             self.checkbox_peaks.setEnabled(False)
+            self.checkbox_hr.blockSignals(True)
             self.checkbox_hr.setChecked(False)
+            self.checkbox_hr.setEnabled(False)
+            self.checkbox_hr.blockSignals(False)
 
             # Enable preprocessing button / 전처리 버튼 활성화
             self.btn_preprocessing.setEnabled(True)
@@ -686,10 +696,23 @@ class ECGOfflineAnalysis(QDialog):
         if self.hr_data is not None:
             valid_mask = ~np.isnan(self.hr_data)
             if np.any(valid_mask):
-                self.ax_hr.plot(
+                self.line_hr, = self.ax_hr.plot(
                     self.time_data[valid_mask], self.hr_data[valid_mask],
-                    'k-', linewidth=1.0, label="Heart Rate"
+                    'k-', linewidth=1.0, label="Heart Rate", zorder=3
                 )
+
+                # Plot markers on HR graph (only when HR data exists)
+                # HR 그래프에 마커 표시 (HR 데이터가 있을 때만)
+                self._plot_markers(self.ax_hr)
+
+                # Auto-scale Y-axis / Y축 자동 스케일링
+                hr_values = self.hr_data[valid_mask]
+                hr_min = np.min(hr_values)
+                hr_max = np.max(hr_values)
+                hr_range = hr_max - hr_min
+                padding = max(5, hr_range * 0.1)
+                self.ax_hr.set_ylim(max(0, hr_min - padding), hr_max + padding)
+
                 self.ax_hr.legend(loc='upper right', fontsize=8)
 
         # Apply layout and redraw / 레이아웃 적용 및 다시 그리기
@@ -1080,12 +1103,17 @@ class ECGOfflineAnalysis(QDialog):
         # Step 4: Reset dependent state and replot
         # 단계 4: 종속 상태 초기화 및 다시 그리기
         self.hr_data = None
+        self.hr_settings = None
+        self.line_hr = None
         self.peak_indices = None
         self.scatter_peaks = None
         self.checkbox_peaks.blockSignals(True)
         self.checkbox_peaks.setChecked(False)
         self.checkbox_peaks.blockSignals(False)
+        self.checkbox_hr.blockSignals(True)
         self.checkbox_hr.setChecked(False)
+        self.checkbox_hr.setEnabled(False)
+        self.checkbox_hr.blockSignals(False)
 
         self.plot_data()
 
@@ -1187,10 +1215,25 @@ class ECGOfflineAnalysis(QDialog):
             self.logger.info(f"R-peak detection complete: {len(self.peak_indices)} peaks found")
             self._plot_peaks()
 
+            # Enable HR checkbox after peak detection
+            # 피크 검출 후 HR 체크박스 활성화
+            self.checkbox_hr.setEnabled(True)
+
         else:
-            # Unchecked: clear peaks / 해제: 피크 제거
+            # Unchecked: clear peaks and HR / 해제: 피크 및 HR 제거
             self._clear_peaks()
             self.peak_indices = None
+
+            # Reset HR state / HR 상태 초기화
+            self.checkbox_hr.blockSignals(True)
+            self.checkbox_hr.setChecked(False)
+            self.checkbox_hr.setEnabled(False)
+            self.checkbox_hr.blockSignals(False)
+            self.hr_data = None
+            self.hr_settings = None
+            self.line_hr = None
+            self._clear_hr_plot()
+
             self.canvas.draw()
 
     def _plot_peaks(self):
@@ -1238,6 +1281,179 @@ class ECGOfflineAnalysis(QDialog):
                 legend = self.ax_preprocessed.get_legend()
                 if legend:
                     legend.remove()
+
+    # =========================================================================
+    # Heart Rate Calculation / 심박수 계산
+    # =========================================================================
+
+    def _on_hr_toggled(self, state):
+        """
+        Handle Show HR checkbox state change.
+        Show HR 체크박스 상태 변경 처리.
+
+        When checked: open settings dialog, calculate HR, plot HR.
+        When unchecked: clear HR from graph.
+        체크 시: 설정 다이얼로그 열기, HR 계산, HR 플로팅.
+        해제 시: 그래프에서 HR 제거.
+
+        Args:
+            state: Checkbox state / 체크박스 상태
+        """
+        if state == Qt.CheckState.Checked.value:
+            # Guard: peak_indices must exist
+            # 가드: 피크 인덱스 필수
+            if self.peak_indices is None or len(self.peak_indices) == 0:
+                QMessageBox.warning(
+                    self, "Heart Rate",
+                    "No R-peaks available.\n"
+                    "Please run peak detection first."
+                )
+                self.checkbox_hr.blockSignals(True)
+                self.checkbox_hr.setChecked(False)
+                self.checkbox_hr.blockSignals(False)
+                return
+
+            # Guard: check detection range
+            # 가드: 검출 범위 확인
+            if self.peak_settings is None or self.peak_settings.get("detection_range") == "total":
+                QMessageBox.information(
+                    self, "Heart Rate",
+                    "Total mode HR calculation is not yet supported.\n"
+                    "Please use Window mode for peak detection."
+                )
+                self.checkbox_hr.blockSignals(True)
+                self.checkbox_hr.setChecked(False)
+                self.checkbox_hr.blockSignals(False)
+                return
+
+            from ecg.ecg_hr_calculation import (
+                ECGHRSettingsDialog,
+                calculate_ecg_heart_rate,
+            )
+
+            # Open settings dialog / 설정 다이얼로그 열기
+            dialog = ECGHRSettingsDialog(
+                parent=self, current_settings=self.hr_settings
+            )
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                self.logger.info("HR calculation cancelled")
+                self.checkbox_hr.blockSignals(True)
+                self.checkbox_hr.setChecked(False)
+                self.checkbox_hr.blockSignals(False)
+                return
+
+            hr_settings = dialog.get_settings()
+            self.hr_settings = hr_settings
+
+            # Calculate HR / HR 계산
+            try:
+                self.hr_data = calculate_ecg_heart_rate(
+                    peak_indices=self.peak_indices,
+                    time_data=self.time_data,
+                    sampling_rate=self.sampling_rate,
+                    peak_settings=self.peak_settings,
+                    hr_settings=hr_settings,
+                    logger=self.logger,
+                )
+            except Exception as e:
+                self.logger.error(f"HR calculation failed: {e}", exc_info=True)
+                QMessageBox.critical(
+                    self, "Heart Rate Error",
+                    f"HR calculation failed:\n\n{str(e)}"
+                )
+                self.checkbox_hr.blockSignals(True)
+                self.checkbox_hr.setChecked(False)
+                self.checkbox_hr.blockSignals(False)
+                return
+
+            if self.hr_data is None:
+                QMessageBox.information(
+                    self, "Heart Rate",
+                    "Could not calculate HR from the detected peaks.\n"
+                    "Ensure sufficient peaks exist in each window."
+                )
+                self.checkbox_hr.blockSignals(True)
+                self.checkbox_hr.setChecked(False)
+                self.checkbox_hr.blockSignals(False)
+                return
+
+            # Check if any valid HR values exist
+            # 유효한 HR 값이 있는지 확인
+            valid_mask = ~np.isnan(self.hr_data)
+            if not np.any(valid_mask):
+                QMessageBox.information(
+                    self, "Heart Rate",
+                    "No valid HR values could be calculated.\n"
+                    "Try adjusting the window size or peak detection settings."
+                )
+                self.hr_data = None
+                self.checkbox_hr.blockSignals(True)
+                self.checkbox_hr.setChecked(False)
+                self.checkbox_hr.blockSignals(False)
+                return
+
+            self.logger.info("HR calculation complete, plotting HR")
+            self._plot_hr()
+
+        else:
+            # Unchecked: clear HR / 해제: HR 제거
+            self.hr_data = None
+            self._clear_hr_plot()
+            self.canvas.draw()
+
+    def _plot_hr(self):
+        """
+        Plot HR data on the Heart Rate subplot.
+        Heart Rate 서브플롯에 HR 데이터 표시.
+        """
+        self._clear_hr_plot()
+
+        if self.hr_data is None:
+            return
+
+        valid_mask = ~np.isnan(self.hr_data)
+        if not np.any(valid_mask):
+            return
+
+        self.line_hr, = self.ax_hr.plot(
+            self.time_data[valid_mask], self.hr_data[valid_mask],
+            'k-', linewidth=1.0, label="Heart Rate", zorder=3
+        )
+
+        # Plot markers on HR graph (only when HR data exists)
+        # HR 그래프에 마커 표시 (HR 데이터가 있을 때만)
+        self._plot_markers(self.ax_hr)
+
+        # Auto-scale Y-axis / Y축 자동 스케일링
+        hr_values = self.hr_data[valid_mask]
+        hr_min = np.min(hr_values)
+        hr_max = np.max(hr_values)
+        hr_range = hr_max - hr_min
+        padding = max(5, hr_range * 0.1)
+        self.ax_hr.set_ylim(max(0, hr_min - padding), hr_max + padding)
+
+        self.ax_hr.legend(loc='upper right', fontsize=8)
+        self.canvas.draw()
+
+    def _clear_hr_plot(self):
+        """
+        Clear HR line from the Heart Rate subplot and reset axis.
+        Heart Rate 서브플롯에서 HR 라인 제거 및 축 초기화.
+        """
+        if self.line_hr is not None:
+            try:
+                self.line_hr.remove()
+            except ValueError:
+                pass
+            self.line_hr = None
+
+        self.ax_hr.clear()
+        self.ax_hr.set_title("Heart Rate")
+        self.ax_hr.set_xlabel("Time (s)")
+        self.ax_hr.set_ylabel("HR (bpm)")
+        self.ax_hr.grid(True, alpha=0.3)
+
+        self.annotation_hr = None
 
     # =========================================================================
     # Save / 저장

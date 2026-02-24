@@ -33,5 +33,10 @@
         "prominence_multiplier": 0.5,
         "height_ratio": 0.3,
         "height_distance": 20
+    },
+    "hr_calculation": {
+        "method": "neurokit2",
+        "filter_sudden_changes": true,
+        "tolerance_percent": 50.0
     }
 }

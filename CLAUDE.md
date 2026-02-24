@@ -29,7 +29,8 @@ ECG Analysis System - ECG(심전도) 신호 분석 시스템
         ├── ecg_column_selection_dialog.py  # CSV 컬럼 매핑 다이얼로그
         ├── ecg_offline_analysis.py     # 오프라인 분석 메인 윈도우
         ├── ecg_preprocessing.py        # 전처리 다이얼로그 및 처리 로직
-        └── ecg_peak_detection.py       # R-피크 검출 다이얼로그 및 처리 로직
+        ├── ecg_peak_detection.py       # R-피크 검출 다이얼로그 및 처리 로직
+        └── ecg_hr_calculation.py       # HR 계산 다이얼로그 및 처리 로직
 ```
 
 ## Build & Run Commands / 빌드 및 실행 명령어
@@ -54,6 +55,7 @@ python src/main.py
 - **ECGOfflineAnalysis** (`src/ecg/ecg_offline_analysis.py`): QDialog 기반 오프라인 분석 윈도우. CSV 로드, 전처리, 시각화
 - **ecg_preprocessing** (`src/ecg/ecg_preprocessing.py`): 전처리 다이얼로그 (방법 선택, 수동 필터, NeuroKit2) 및 전처리 실행 로직. 윈도우 기반 처리 지원
 - **ecg_peak_detection** (`src/ecg/ecg_peak_detection.py`): R-피크 검출 다이얼로그 (NeuroKit2) 및 검출 실행 로직. Total/Window 모드 지원
+- **ecg_hr_calculation** (`src/ecg/ecg_hr_calculation.py`): HR 계산 다이얼로그 (NeuroKit2) 및 계산 실행 로직. Window 모드에서 윈도우별 HR 계산 후 다음 윈도우에 수평선 표시. 급격한 HR 변동 필터 옵션 지원
 - **Logging**: 2단계 로깅 (early logging → session logging). `{save_location}/log/YYYYMMDD/YYYYMMDD_HHMMSS.log`
 - **Config**: JSON 기반 설정 관리. `config/common_parameters.json`, `config/ecg_preprocess_settings.json`
 
