@@ -2,8 +2,8 @@
     "last_method": "neurokit2",
     "windowing": {
         "enabled": true,
-        "window_size": 20.0,
-        "window_step": 20.0
+        "window_size": 10.0,
+        "window_step": 10.0
     },
     "manual": {
         "moving_avg_enabled": false,
@@ -28,15 +28,15 @@
         "method": "neurokit2",
         "sub_method": "neurokit",
         "detection_range": "window",
-        "window_size": 20.0,
-        "window_step": 20.0,
+        "window_size": 10.0,
+        "window_step": 10.0,
         "prominence_multiplier": 0.5,
         "height_ratio": 0.3,
         "height_distance": 20
     },
     "hr_calculation": {
         "method": "neurokit2",
-        "filter_sudden_changes": true,
+        "filter_sudden_changes": false,
         "tolerance_percent": 50.0
     }
 }

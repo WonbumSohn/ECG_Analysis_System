@@ -1,4 +1,19 @@
+
+#####
+.DS_Store
+._*
+
+
+
+#####
 .claude/
 log/
 data/
 results/
+
+
+
+#####
+##### ---- Personal files ----
+#####
+Wonbum/
